@@ -20,12 +20,12 @@
 **LoRA的公式**：
 假设有一个给定层的较大权重矩阵 $W$，在反向传播过程中，需要学习一个 $\Delta W$ 矩阵，它包含了在训练过程中我们需要更新多少原始权值以使损失函数最小化的信息。假设输入是 $x$，输出是 $h$，那么: $h = W_0x$.
 
-在进行参数更新时，如果使用全参数量微调：$h=W_0x+△Wx $，此时权重更新定义如下：$$W_{\text {updated }}=W_0 + \Delta W$$
+在进行参数更新时，如果使用全参数量微调：$h=W_0x+\Delta Wx$，此时权重更新定义如下：$$W_{\text {updated }}=W_0 + \Delta W$$
 
 如果采用 LoRA，则：
 $$h=W_0x+\Delta Wx=W_0x+ABx $$
 $$W_{\text {updated }}=W_0+AB$$
-$△W$的分解意味着可以用两个较小的低秩矩阵A和B来表示较大的矩阵。
+$\Delta W$的分解意味着可以用两个较小的低秩矩阵A和B来表示较大的矩阵。
 
 **低秩矩阵的优势**：
 假定只使用单独的一个 $\Delta W$ 矩阵，参数量为 5,000 x 10,000 (共有50M 参数)，如果使用 LoRA，选择秩为 $r=8$, 此时原来的大矩阵可分解为两个大小分别为 5000 x 8 维以及 8 x 10000 维的小矩阵 A 和 B，A 和 B 只有 80000 + 40000 = 120000 个参数，这比通过 $\Delta W$ 进行常规微调的50M 参数小400倍。
@@ -33,14 +33,20 @@ $△W$的分解意味着可以用两个较小的低秩矩阵A和B来表示较大
 **实现过程**：
 冻结预训练的模型参数，在Transfomer的每一个线性层中加入一个可训练的旁路矩阵（低秩可分离矩阵 $\Delta W$），接着将旁路输出与初始输出相加后输入到网络当中，并只训练这些新增的旁路矩阵参数。其中，低秩可分离矩阵由两个矩阵组成，第一个矩阵 $A$ 负责降维，第二个矩阵 $B$ 负责升维，中间层维度为 $r$，从而来模拟本征秩（intrinsic rank），这两个低秩矩阵能够大幅度减小参数量。
 
-![An illustration of regular finetuning (left) and LoRA finetuning (right).](https://raw.githubusercontent.com/Samanthe-H/PicGo/master/lora%20v.s.%20regular.png)
+<figure style="display: block; margin: auto; text-align: center;">
+  <img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/lora v.s. regular.png" alt="LoRA_3" style="zoom: 80%;" />
+  <figcaption>一般参数微调（左图）与LoRA参数微调（右图）</figcaption>
+</figure>
 
 
-## LoRA 层代码实现
+# LoRA 层代码实现
 
-首先初始化一个 LoRALayer, 创建低秩矩阵 A 和 B，以及缩放超参数 alpha 和秩超参数 rank:
+首先初始化一个 LoRALayer, 创建低秩矩阵 A 和 B，以及缩放超参数 alpha 和秩超参数 rank.
 
-<img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/LoRA_1.png" alt="Illustration of the LoRA matrices A and B with rank r." style="zoom:50%;" />
+<figure style="display: block; margin: auto; text-align: center;">
+  <img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/LoRA_1.png" alt="LoRA_3" style="zoom: 40%;" />
+  <figcaption>秩为 r 的 LoRA 矩阵 A 和 B</figcaption>
+</figure>
 
 
 ```python
@@ -78,15 +84,18 @@ class LoRALayer(nn.Module):
 
 - 对 A, B 的分析：
 
-    我们从一个随机分布中用很小的值初始化了 A，用零初始化了 B。A 的分布的标准差是由秩的平方根决定的(这个选择确保了 A 中的初始值不会太大)。在训练开始时，在通过反向传播更新 A 和 B 之前，LoRALayer 不会影响原始权重，因为如果 B = 0，则 AB = 0。
+    我们从一个随机分布中用很小的值初始化了 A，用零初始化了 B, A 的分布的标准差是由秩的平方根决定的(这个选择确保了 A 中的初始值不会太大)。在训练开始时，在通过反向传播更新 A 和 B 之前，LoRALayer 不会影响原始权重，因为如果 B = 0，则 AB = 0。
 
 接下来，定义 LinearWithLoRA 层以及 LinearWithLoRAMerged 层，用 linear+lora_layer 替换神经网络中现有的线性（前馈）层：
 
 <img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/LoRA_2.png" style="zoom: 50%;" />
 
-<img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/LoRA_3.png" alt="LoRA_3" style="zoom: 50%;" />
+<figure style="display: block; margin: auto; text-align: center;">
+  <img src="https://raw.githubusercontent.com/Samanthe-H/PicGo/master/LoRA_3.png" alt="LoRA_3" style="zoom: 40%;" />
+  <figcaption>将神经网络中现有的线性层替换为结合了原始线性层和 LoRALayer 的 LinearWithLoRA 层</figcaption>
+</figure>
 
-将神经网络中现有的线性层替换为结合了原始线性层和 LoRALayer 的 LinearWithLoRA 层
+
 
 
 
@@ -171,31 +180,42 @@ $$W_\text{update}= m\frac{V+\Delta V}{\lVert V+\Delta V \rVert_c} = m\frac{V+AB}
 
 
 <div style="text-align: center;">
-    <img src="pictures/DoRA_1.png" width="250" height="200">
-    <img src="pictures/DoRA_2.png" width="350" height="200">
-矢量分解（左）以及权重矩阵分解（右）的示意图
+  <div style="display: inline-block; margin-right: 10px;">
+    <img src="https://hackmd.io/_uploads/Bk2Wlk4bC.png" width="250" height="200" />
+    <figcaption>矢量分解示意图</figcaption>
+  </div>
+  <div style="display: inline-block;">
+    <img src="https://hackmd.io/_uploads/rJnZlkV-A.png" width="300" height="200" />
+    <figcaption>权重矩阵分解示意图</figcaption>
+  </div>
+</div>
+
 
 <div style="text-align: center;">
-    <img src="pictures/DoRA_3.png" width="600" height="450">
-DORA 步骤图解
+    <img src="https://hackmd.io/_uploads/HkIGbyEZA.png" width="600" height="450">
+    <figcaption>DORA 步骤图解</figcaption>
+  </div>
+</div>
+
 
 
 
 如果将 DoRA 与 LoRA 进行比较，引入幅度向量 m 会增加0.01% 的参数。然而，在 LLM 和 vision transformer 基准测试中，他们发现如果 DoRA 的等级减半，那么 DoRA 的性能甚至会超过 LoRA。例如，当 DoRA 只使用普通 LoRA 的一半参数时，性能比较如下所示：
 
 <div style="text-align: center;">
-    <img src="pictures/DoRA_4.png" width="700" height="200">
-
-###### DORA 与 LoRA 性能比较
+    <img src="https://hackmd.io/_uploads/By_OWJVZR.png" width="700" height="200">
+    <figcaption>DORA 与 LoRA 性能比较<figcaption>
+  </div>
 </div>
+
 
 除此之外，DoRA 对 rank 的变化更加不敏感，更具有稳健性。因此，在相对较小的 rank 下使用 DoRA 的成功率可能更高，这使得这种方法比 LoRA 更具有参数效率：
 <div style="text-align: center;">
-    <img src="pictures/DoRA_5.png" width="500" height="300">
-
-###### DORA 与 LoRA 关于 rank 的稳健性比较
+    <img src="https://hackmd.io/_uploads/rJlpZJ4ZR.png" width="500" height="300">
+    <figcaption>DORA 与 LoRA 关于 rank 的稳健性比较<figcaption>
+  </div>
 </div>
-
+  
 
 ## DoRA 层代码实现
 
@@ -389,9 +409,9 @@ for images, labels in train_loader:
 首先构造一个简单的三层感知机，该例不涉及大语言模型，只是直观展示 LoRA 和 DoRA 的实现过程以及具体对网络中的什么部分起作用。
 
 <div style="text-align: center;">
-    <img src="pictures/3-layerMP.png" width="250" height="380"> 
+    <img src="https://hackmd.io/_uploads/Ske8MkVb0.png" width="250" height="380"> 
 
-###### 一个简单的三层感知机（input 的维度应改为784）
+一个简单的三层感知机（input 的维度应改为784）
 </div>
 
 
